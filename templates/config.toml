@@ -1,0 +1,25 @@
+# bob config
+
+default_engine = "claude"
+# locale and timezone auto-detected from system if not set
+# locale = "en-GB"
+# timezone = "Europe/London"
+
+[telegram]
+# token = "your-bot-token"
+allowlist = []
+ack_reaction = ""
+
+[engines.claude]
+skip_permissions = true
+
+[engines.codex]
+yolo = true
+
+[heartbeat]
+enabled = true
+
+[dnd]
+enabled = false
+# start = "22:00"
+# end = "08:00"
