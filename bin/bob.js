@@ -39,7 +39,7 @@ async function main() {
   process.exit(1);
 }
 
-function resolveBunPath(skipPathCheck = false): string | null {
+function resolveBunPath(skipPathCheck = false) {
   const envPath = process.env.BOB_BUN_PATH || process.env.BUN_PATH;
   if (envPath && existsSync(envPath)) {
     return envPath;
@@ -49,7 +49,7 @@ function resolveBunPath(skipPathCheck = false): string | null {
     return "bun";
   }
 
-  const candidates: string[] = [];
+  const candidates = [];
   if (process.env.BUN_INSTALL) {
     candidates.push(path.join(process.env.BUN_INSTALL, "bin", bunExecutable));
   }
@@ -68,7 +68,7 @@ function resolveBunPath(skipPathCheck = false): string | null {
   return null;
 }
 
-function canRun(cmd: string): boolean {
+function canRun(cmd) {
   try {
     const result = spawnSync(cmd, ["--version"], { stdio: "ignore" });
     return result.status === 0;
@@ -77,7 +77,7 @@ function canRun(cmd: string): boolean {
   }
 }
 
-async function installBun(): Promise<boolean> {
+async function installBun() {
   if (process.platform === "win32") {
     const result = spawnSync(
       "powershell",
@@ -106,7 +106,7 @@ async function installBun(): Promise<boolean> {
   return false;
 }
 
-async function download(url: string): Promise<string | null> {
+async function download(url) {
   try {
     const response = await fetch(url, { redirect: "follow" });
     if (!response.ok) {
