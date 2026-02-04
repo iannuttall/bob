@@ -3,8 +3,7 @@ node_modules
 
 # output
 out
-dist
-*.tgz
+# dist intentionally tracked for launcher.js
 
 # code coverage
 coverage

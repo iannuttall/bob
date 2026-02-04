@@ -4,13 +4,21 @@
   "description": "hi, i'm bob - your personal telegram ai assistant.",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
   "engines": {
     "node": ">=18"
   },
   "bin": {
-    "bob": "./bin/bob.js"
+    "bob": "./dist/launcher.js"
   },
+  "files": [
+    "dist",
+    "bin",
+    "src",
+    "templates",
+    "README.md",
+    "bun.lock",
+    "package.json"
+  ],
   "scripts": {
     "setup": "bun bin/bob.ts setup",
     "dev": "bun --watch src/index.ts",
@@ -21,7 +29,7 @@
     "format": "biome format . --write",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build src/index.ts --outdir dist --target bun --external node-llama-cpp --external @node-llama-cpp/*"
+    "build": "bun build src/index.ts --outdir dist --target bun --external node-llama-cpp --external @node-llama-cpp/* && bun build src/launcher.ts --outdir dist --target node --format esm --banner '#!/usr/bin/env node'"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.29",
