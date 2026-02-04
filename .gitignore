@@ -3,7 +3,8 @@ node_modules
 
 # output
 out
-# dist intentionally tracked for launcher.js
+dist
+!dist/launcher.js
 
 # code coverage
 coverage
