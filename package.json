@@ -1,6 +1,6 @@
 {
   "name": "bob-agent",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "hi, i'm bob - your personal telegram ai assistant.",
   "module": "src/index.ts",
   "type": "module",

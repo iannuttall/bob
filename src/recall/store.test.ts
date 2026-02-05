@@ -1,15 +1,30 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRecallStore } from "./store";
+
+function canLoadSqliteVec(): boolean {
+  try {
+    const db = new Database(":memory:");
+    const sqliteVec = require("sqlite-vec");
+    sqliteVec.load(db);
+    db.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const hasVec = canLoadSqliteVec();
 
 function makeTempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "bob-recall-"));
 }
 
 describe("recall store sqlite-vec integration", () => {
-  test("searchVector returns results when vectors_vec exists", () => {
+  test.skipIf(!hasVec)("searchVector returns results when vectors_vec exists", () => {
     const root = makeTempDir();
     try {
       const store = createRecallStore(root);

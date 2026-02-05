@@ -16,7 +16,7 @@ import { DEFAULT_CONTEXT_LIMIT, formatContext } from "./prompt/context";
 import { streamAgentReply } from "./telegram/reply-stream";
 import { SessionStore } from "./sessions/store";
 import { appendConversation } from "./conversations";
-import { parseDirectives, isAgentCommand, isStatusCommand } from "./directives";
+import { parseDirectives, isAgentCommand, isStartCommand, isStatusCommand } from "./directives";
 import { createJobStore } from "./scheduler/store";
 import { checkForCrash, clearExitInfo, writeExitInfo } from "./crash/recovery";
 import { createEventStore } from "./events/store";
@@ -115,6 +115,17 @@ async function main() {
       console.log("bob ready. listening on telegram.");
     },
     onMessage: async (message) => {
+      // Handle /start command - Telegram bot init greeting
+      if (isStartCommand(message.text)) {
+        await sendTelegramMessage(
+          transportConfig,
+          message.chatId,
+          "hey! send me a message and i'll get to work.",
+          { threadId: message.threadId },
+        );
+        return;
+      }
+
       // Handle /agent command - toggle between claude and codex
       if (isAgentCommand(message.text)) {
         const chatDefault = sessionStore.getDefaultEngine(message.chatId);
@@ -272,6 +283,15 @@ async function main() {
         }
 
         didReact = result.didReact;
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.error(`SDK error for chat ${message.chatId}: ${errMsg}`);
+        await sendTelegramMessage(
+          transportConfig,
+          message.chatId,
+          `something went wrong: ${errMsg}`,
+          { threadId: message.threadId },
+        );
       } finally {
         const stopTypingFn = stopTyping as (() => void) | null;
         stopTypingFn?.();

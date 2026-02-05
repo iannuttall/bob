@@ -10,6 +10,7 @@ export type ParsedDirectives = {
 const ENGINE_DIRECTIVE_RE = /^\/(claude|codex|opencode|pi)\b\s*/i;
 const AGENT_COMMAND_RE = /^\/agent\s*$/i;
 const STATUS_COMMAND_RE = /^\/status\s*$/i;
+const START_COMMAND_RE = /^\/start\s*$/i;
 const PROJECT_DIRECTIVE_RE = /^\/([a-zA-Z0-9_-]+)\s+/;
 const BRANCH_DIRECTIVE_RE = /^@([a-zA-Z0-9_/-]+)\s*/;
 
@@ -71,6 +72,13 @@ function isValidEngine(engine: string): engine is EngineId {
  */
 export function isAgentCommand(text: string): boolean {
   return AGENT_COMMAND_RE.test(text.trim());
+}
+
+/**
+ * Check if message is /start command (Telegram bot init).
+ */
+export function isStartCommand(text: string): boolean {
+  return START_COMMAND_RE.test(text.trim());
 }
 
 /**

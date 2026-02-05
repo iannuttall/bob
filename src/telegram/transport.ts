@@ -350,6 +350,7 @@ export function makeCancelKeyboard(): TelegramInlineKeyboard {
 export async function registerTelegramCommands(config: TelegramTransportConfig) {
   const client = createTelegramClient({ token: config.token });
   const commands = [
+    { command: "start", description: "start the bot" },
     { command: "agent", description: "switch between claude and codex" },
     { command: "status", description: "show current engine and upcoming jobs" },
   ];

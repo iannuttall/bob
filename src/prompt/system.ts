@@ -195,6 +195,9 @@ export function buildPrompt(parts: PromptParts): string {
     chunks.push(parts.contextBlock);
   }
 
+  // Guardrail: prefer clarification over exploration
+  chunks.push("IMPORTANT: if the user's message is unclear or vague, ask them for details before taking action. do not launch into tool use or file exploration without a clear task.");
+
   // Add the user's message
   chunks.push(`User: ${parts.userText}`);
 
