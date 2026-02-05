@@ -383,7 +383,7 @@ async function waitForTelegramStart(token: string, timeoutMs: number): Promise<W
 
     const sorted = [...updates].sort((a, b) => (a.update_id ?? 0) - (b.update_id ?? 0));
     const lastId = sorted[sorted.length - 1]?.update_id;
-    if (Number.isFinite(lastId)) {
+    if (typeof lastId === "number" && Number.isFinite(lastId)) {
       offset = lastId + 1;
     }
 

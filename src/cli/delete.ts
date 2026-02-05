@@ -13,7 +13,7 @@ export async function deleteCommand(args: string[]): Promise<void> {
 
   if (!force) {
     const typed = await text({
-      message: `Type \"delete\" to remove all bob data at ${globalRoot}${keepPackage ? "" : " and uninstall bob-agent"}`,
+      message: `Type "delete" to remove all bob data at ${globalRoot}${keepPackage ? "" : " and uninstall bob-agent"}`,
       placeholder: "delete",
       validate: (value) =>
         value.trim().toLowerCase() === "delete" ? undefined : 'type "delete" to confirm',
