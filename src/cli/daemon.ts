@@ -187,6 +187,9 @@ function buildPlist(globalRoot: string): string {
 
   mkdirSync(logsDir, { recursive: true });
 
+  // Capture user's PATH so launchd can find claude, bun, etc.
+  const userPath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+
   // The plist runs the main bob process
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -202,6 +205,11 @@ function buildPlist(globalRoot: string): string {
   </array>
   <key>WorkingDirectory</key>
   <string>${escapeXml(path.dirname(mainScript))}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${escapeXml(userPath)}</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
