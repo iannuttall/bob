@@ -1,8 +1,18 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { loadConfig } from "../config/load";
+import { setup } from "./setup";
 
 const LABEL = "com.bob.daemon";
 
@@ -19,10 +29,15 @@ export const daemon = {
       throw new Error("launchctl not found. this command requires macOS.");
     }
 
-    const config = await loadConfig();
-
+    console.log("Setting Bob up...");
+    let config = await loadConfig();
     if (!config.telegram.token) {
-      throw new Error("no telegram token found. run 'bob setup' first.");
+      console.log("no telegram token found. running setup...");
+      await setup(["--from-start"]);
+      config = await loadConfig();
+      if (!config.telegram.token) {
+        throw new Error("no telegram token found. run 'bob setup' to add one.");
+      }
     }
 
     const plist = buildPlist(config.globalRoot);
@@ -45,11 +60,23 @@ export const daemon = {
     execFileSync("launchctl", ["enable", `${target}/${LABEL}`], { stdio: "ignore" });
     execFileSync("launchctl", ["kickstart", "-k", `${target}/${LABEL}`], { stdio: "ignore" });
 
+    console.log("Waiting for daemon to start...");
+    const started = await waitForDaemonRunning(target, 60_000);
+
+    console.log("Checking Telegram connection...");
+    const ready = await waitForReadyLog(config.paths.logsRoot, 60_000);
+
     // get bot username for friendly message
     const botName = await getBotUsername(config.telegram.token);
 
     console.log();
-    if (botName) {
+    if (!started) {
+      console.log("bob start completed, but daemon did not report running within 60s.");
+      console.log("run: bob logs");
+    } else if (!ready) {
+      console.log("bob daemon is running, but telegram transport did not report ready within 60s.");
+      console.log("run: bob logs");
+    } else if (botName) {
       console.log(`bob is running. message @${botName} on telegram.`);
     } else {
       console.log(`bob is running. message your bot on telegram.`);
@@ -208,4 +235,71 @@ async function getBotUsername(token: string): Promise<string | null> {
     // ignore
   }
   return null;
+}
+
+async function waitForDaemonRunning(target: string, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (isDaemonRunning(target)) {
+      return true;
+    }
+    await sleep(1000);
+  }
+  return false;
+}
+
+function isDaemonRunning(target: string): boolean {
+  try {
+    const output = execFileSync("launchctl", ["print", `${target}/${LABEL}`], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return /state = running/.test(output);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForReadyLog(logsRoot: string, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  const stdoutLog = path.join(logsRoot, "stdout.log");
+  while (Date.now() - start < timeoutMs) {
+    try {
+      if (existsSync(stdoutLog)) {
+        const content = readLastBytes(stdoutLog, 8_192);
+        if (
+          content.includes("telegram transport ready.") ||
+          content.includes("bob ready. listening on telegram.")
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    await sleep(1000);
+  }
+  return false;
+}
+
+function readLastBytes(filePath: string, maxBytes: number): string {
+  try {
+    const fd = openSync(filePath, "r");
+    try {
+      const stat = fstatSync(fd);
+      const size = stat.size;
+      const readSize = Math.min(size, maxBytes);
+      const buffer = Buffer.alloc(readSize);
+      readSync(fd, buffer, 0, readSize, size - readSize);
+      return buffer.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

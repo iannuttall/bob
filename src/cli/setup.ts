@@ -12,7 +12,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { createJobStore } from "../scheduler/store";
-import { confirm, text, isCancel, note } from "@clack/prompts";
+import { confirm, text, isCancel, note, password, spinner } from "@clack/prompts";
 
 const BOB_ROOT = path.join(homedir(), ".bob");
 const DATA_ROOT = path.join(BOB_ROOT, "data");
@@ -20,7 +20,8 @@ const DATA_ROOT = path.join(BOB_ROOT, "data");
 /**
  * bob setup - create initial config and directories from templates
  */
-export async function setup(_args: string[]): Promise<void> {
+export async function setup(args: string[]): Promise<void> {
+  const fromStart = args.includes("--from-start");
   // Find templates directory (relative to this file when running from source)
   const templatesRoot = path.resolve(import.meta.dir, "../../templates");
 
@@ -117,18 +118,22 @@ export async function setup(_args: string[]): Promise<void> {
   }
 
   console.log("\nsetup complete.\n");
-  console.log("next steps:");
-  if (!didPair.tokenPresent) {
-    console.log("  1. add your telegram bot token to ~/.bob/config.toml");
+  if (!fromStart) {
+    console.log("next steps:");
+    if (!didPair.tokenPresent) {
+      console.log("  1. add your telegram bot token to ~/.bob/config.toml");
+    } else {
+      console.log("  1. verify your telegram bot token in ~/.bob/config.toml");
+    }
+    if (!didPair.allowlistPresent) {
+      console.log("  2. add your telegram user id to the allowlist (or re-run setup to pair)");
+    } else {
+      console.log("  2. verify your allowlist in ~/.bob/config.toml");
+    }
+    console.log("  3. run: bob start\n");
   } else {
-    console.log("  1. verify your telegram bot token in ~/.bob/config.toml");
+    console.log("continuing to start...\n");
   }
-  if (!didPair.allowlistPresent) {
-    console.log("  2. add your telegram user id to the allowlist (or re-run setup to pair)");
-  } else {
-    console.log("  2. verify your allowlist in ~/.bob/config.toml");
-  }
-  console.log("  3. run: bob start\n");
 }
 
 type PairingStatus = {
@@ -164,9 +169,9 @@ async function maybePairTelegram(configPath: string): Promise<PairingStatus> {
 
   let token = initialToken?.trim() ?? "";
   if (!token) {
-    const entered = await text({
-      message: "Enter your Telegram bot token",
-      placeholder: "123456:ABCDEF...",
+    const entered = await password({
+      message: "Enter your Telegram bot token (looks like 123456:ABCDEF...)",
+      mask: "*",
       validate: (value) => (value.trim().length < 10 ? "token looks too short" : undefined),
     });
     if (isCancel(entered)) {
@@ -180,21 +185,14 @@ async function maybePairTelegram(configPath: string): Promise<PairingStatus> {
   }
 
   for (;;) {
-    const prompt = await text({
-      message: "Send /start to your bot, then press Enter",
-      placeholder: "press Enter when ready",
-    });
-    if (isCancel(prompt)) {
-      return {
-        tokenPresent: Boolean(token),
-        allowlistPresent: initialAllowlist.length > 0,
-      };
-    }
-
-    const user = await findLatestTelegramUser(token);
-    if (!user) {
+    note("Send /start to your bot now. Waiting for the message...", "telegram");
+    const wait = spinner();
+    wait.start("Waiting for /start...");
+    const result = await waitForTelegramStart(token, 90_000);
+    wait.stop(result ? "Message received." : "No /start message yet.");
+    if (!result) {
       const retry = await confirm({
-        message: "No recent messages found. Try again?",
+        message: "No /start message yet. Keep waiting?",
         initialValue: true,
       });
       if (isCancel(retry) || !retry) {
@@ -205,6 +203,12 @@ async function maybePairTelegram(configPath: string): Promise<PairingStatus> {
       }
       continue;
     }
+
+    if (!result.sawStart) {
+      note("Found a recent message, but not a /start. Continuing anyway.", "info");
+    }
+
+    const user = result.user;
 
     const label = user.username ? `@${user.username}` : `${user.firstName ?? "user"}`;
     const ok = await confirm({
@@ -327,41 +331,127 @@ function tomlString(value: string): string {
   return `"${escaped}"`;
 }
 
-async function findLatestTelegramUser(token: string): Promise<{
+type TelegramUser = {
   id: number;
   username?: string;
   firstName?: string;
-} | null> {
+};
+
+type TelegramUpdate = {
+  update_id: number;
+  message?: {
+    text?: string;
+    from?: { id: number; username?: string; first_name?: string };
+  };
+  callback_query?: {
+    data?: string;
+    from?: { id: number; username?: string; first_name?: string };
+  };
+  my_chat_member?: {
+    from?: { id: number; username?: string; first_name?: string };
+  };
+  chat_member?: {
+    from?: { id: number; username?: string; first_name?: string };
+  };
+};
+
+type WaitResult = {
+  user: TelegramUser;
+  sawStart: boolean;
+};
+
+async function waitForTelegramStart(token: string, timeoutMs: number): Promise<WaitResult | null> {
+  const startedAt = Date.now();
+  let offset: number | undefined;
+  let fallbackUser: TelegramUser | null = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    const timeoutSec = Math.max(1, Math.min(25, Math.ceil(remainingMs / 1000)));
+
+    const updates = await fetchTelegramUpdates(token, {
+      offset,
+      limit: 50,
+      timeout: timeoutSec,
+    });
+    if (!updates) {
+      return fallbackUser ? { user: fallbackUser, sawStart: false } : null;
+    }
+    if (updates.length === 0) {
+      continue;
+    }
+
+    const sorted = [...updates].sort((a, b) => (a.update_id ?? 0) - (b.update_id ?? 0));
+    const lastId = sorted[sorted.length - 1]?.update_id;
+    if (Number.isFinite(lastId)) {
+      offset = lastId + 1;
+    }
+
+    for (const update of sorted) {
+      const candidate = extractTelegramUser(update);
+      if (!candidate) {
+        continue;
+      }
+      if (candidate.sawStart) {
+        return { user: candidate.user, sawStart: true };
+      }
+      fallbackUser = candidate.user;
+    }
+  }
+
+  return fallbackUser ? { user: fallbackUser, sawStart: false } : null;
+}
+
+async function fetchTelegramUpdates(
+  token: string,
+  params: { offset?: number; limit?: number; timeout?: number },
+): Promise<TelegramUpdate[] | null> {
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ limit: 5, timeout: 0 }),
+      body: JSON.stringify({
+        offset: params.offset,
+        limit: params.limit ?? 50,
+        timeout: params.timeout ?? 0,
+        allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"],
+      }),
     });
     if (!response.ok) {
       return null;
     }
     const data = (await response.json()) as {
       ok: boolean;
-      result?: Array<{
-        update_id: number;
-        message?: { from?: { id: number; username?: string; first_name?: string } };
-        callback_query?: { from?: { id: number; username?: string; first_name?: string } };
-      }>;
+      result?: TelegramUpdate[];
     };
-    if (!data.ok || !data.result || data.result.length === 0) {
+    if (!data.ok || !Array.isArray(data.result)) {
       return null;
     }
-    const sorted = [...data.result].sort((a, b) => (a.update_id ?? 0) - (b.update_id ?? 0));
-    const latest = sorted[sorted.length - 1];
-    const from = latest?.message?.from ?? latest?.callback_query?.from;
-    if (!from || !Number.isFinite(from.id)) {
-      return null;
-    }
-    return { id: from.id, username: from.username, firstName: from.first_name };
+    return data.result;
   } catch {
     return null;
   }
+}
+
+function extractTelegramUser(update: TelegramUpdate): { user: TelegramUser; sawStart: boolean } | null {
+  const from =
+    update.message?.from ??
+    update.callback_query?.from ??
+    update.my_chat_member?.from ??
+    update.chat_member?.from;
+  if (!from || !Number.isFinite(from.id)) {
+    return null;
+  }
+  const text = update.message?.text ?? update.callback_query?.data;
+  const sawStart = typeof text === "string" && text.trim().startsWith("/start");
+  return {
+    user: {
+      id: from.id,
+      username: from.username,
+      firstName: from.first_name,
+    },
+    sawStart,
+  };
 }
 
 function securePermissions(root: string) {

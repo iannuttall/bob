@@ -109,9 +109,11 @@ async function main() {
     // Non-fatal - version check is best-effort
   }
 
-  console.log(`bob ready. listening on telegram.`);
-
   await startTelegramTransport(transportConfig, {
+    onReady: () => {
+      console.log("telegram transport ready.");
+      console.log("bob ready. listening on telegram.");
+    },
     onMessage: async (message) => {
       // Handle /agent command - toggle between claude and codex
       if (isAgentCommand(message.text)) {
@@ -288,5 +290,11 @@ async function main() {
 }
 
 if (import.meta.main) {
-  void main();
+  try {
+    await main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  }
 }

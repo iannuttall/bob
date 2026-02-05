@@ -24,6 +24,7 @@ export type TelegramTransportHandlers = {
   onCallback?: (callback: TelegramCallbackData) => Promise<void> | void;
   onIgnored?: (message: TelegramMessage, reason: string) => void;
   onError?: (error: Error) => void;
+  onReady?: () => void;
 };
 
 export async function startTelegramTransport(
@@ -32,6 +33,7 @@ export async function startTelegramTransport(
 ) {
   const client = createTelegramClient({ token: config.token });
   let offset: number | undefined = loadOffset(config.statePath);
+  let didReady = false;
 
   for (;;) {
     try {
@@ -40,6 +42,10 @@ export async function startTelegramTransport(
         timeoutSeconds: 30,
         allowedUpdates: ["message", "callback_query"],
       });
+      if (!didReady) {
+        didReady = true;
+        handlers.onReady?.();
+      }
 
       for (const update of updates) {
         // Handle callback queries (button presses)

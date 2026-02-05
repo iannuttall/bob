@@ -28,6 +28,8 @@ import { db } from "../src/cli/db";
 import { version } from "../src/cli/version";
 import { dnd } from "../src/cli/dnd";
 import { syncSkills } from "../src/cli/sync-skills";
+import { doctor } from "../src/cli/doctor";
+import { deleteCommand } from "../src/cli/delete";
 
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
@@ -74,6 +76,12 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
 
   // Skills
   "sync-skills": syncSkills,
+
+  // Diagnostics
+  doctor,
+
+  // Cleanup
+  delete: deleteCommand,
 };
 
 function printHelp() {
@@ -121,6 +129,9 @@ Daemon:
 Setup:
   setup                       Interactive setup wizard
   sync-skills                 Symlink bob skills to SDK directories
+  doctor                      Run health checks
+  delete                      Remove all bob data (prompts, and uninstall bob-agent)
+    --keep                    Keep npm package installed
 
 Database:
   db migrate                  Run pending migrations
