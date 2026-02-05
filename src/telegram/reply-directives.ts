@@ -14,6 +14,7 @@ export type ReplyDirectiveResult = {
 const REPLY_TAG_RE = /\[\[\s*(?:reply_to_current|reply_to\s*:\s*([^\]\n]+))\s*\]\]/gi;
 const REACT_TAG_RE = /\[\[\s*react\s*:\s*([^\]\n]+)\s*\]\]/gi;
 const STREAM_TAG_RE = /\[\[\s*stream\s*:\s*(edit|send|off)\s*\]\]/gi;
+const TG_TAG_RE = /\[tg:([a-z_]+)(?::([^\]\n]+))?\]/gi;
 
 function normalizeDirectiveWhitespace(text: string): string {
   return text
@@ -44,6 +45,34 @@ export function parseReplyDirectives(
     const emoji = emojiRaw.trim();
     if (emoji) {
       react = emoji;
+    }
+    return " ";
+  });
+
+  text = text.replace(TG_TAG_RE, (_match, tagRaw: string, valueRaw?: string) => {
+    const tag = tagRaw.trim();
+    const value = valueRaw?.trim();
+    if (tag === "react" && value) {
+      react = value;
+      return " ";
+    }
+    if (tag === "stream" && value) {
+      const mode = value as StreamMode;
+      if (mode === "edit" || mode === "send" || mode === "off") {
+        streamMode = mode;
+      }
+      return " ";
+    }
+    if (tag === "reply_to_current") {
+      replyToCurrent = true;
+      return " ";
+    }
+    if (tag === "reply_to" && value) {
+      const id = Number(value);
+      if (Number.isFinite(id)) {
+        replyToMessageId = id;
+      }
+      return " ";
     }
     return " ";
   });
