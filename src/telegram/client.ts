@@ -1,3 +1,4 @@
+import TelegramBot from "node-telegram-bot-api";
 import type { TelegramSendOptions, TelegramUpdate } from "./types";
 
 export type TelegramClientOptions = {
@@ -35,56 +36,21 @@ export type TelegramReaction = {
   custom_emoji_id?: string;
 };
 
-type TelegramApiResponse<T> = {
-  ok: boolean;
-  result?: T;
-  description?: string;
-};
+const botCache = new Map<string, TelegramBot>();
+
+function getBot(token: string) {
+  const existing = botCache.get(token);
+  if (existing) return existing;
+  const bot = new TelegramBot(token, { polling: false });
+  botCache.set(token, bot);
+  return bot;
+}
 
 export function createTelegramClient(options: TelegramClientOptions) {
-  const baseUrl = `https://api.telegram.org/bot${options.token}`;
-
-  async function call<T>(method: string, payload?: Record<string, unknown>): Promise<T> {
-    const response = await fetch(`${baseUrl}/${method}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: payload ? JSON.stringify(payload) : undefined,
-    });
-
-    let dataText = "";
-    try {
-      dataText = await response.text();
-    } catch {
-      dataText = "";
-    }
-    let data: TelegramApiResponse<T> | null = null;
-    if (dataText) {
-      try {
-        data = JSON.parse(dataText) as TelegramApiResponse<T>;
-      } catch {
-        data = null;
-      }
-    }
-
-    if (!response.ok) {
-      const detail = data?.description ?? (dataText || "unknown");
-      throw new Error(`Telegram API HTTP ${response.status}: ${detail}`);
-    }
-
-    if (!data) {
-      data = (await response.json()) as TelegramApiResponse<T>;
-    }
-    if (!data.ok || data.result === undefined) {
-      throw new Error(`Telegram API error: ${data.description ?? "unknown"}`);
-    }
-
-    return data.result;
-  }
+  const bot = getBot(options.token);
 
   async function getUpdates(params: TelegramGetUpdatesParams = {}) {
-    const payload: Record<string, unknown> = {
+    const payload: TelegramBot.GetUpdatesOptions = {
       timeout: params.timeoutSeconds ?? 30,
     };
     if (params.offset !== undefined) {
@@ -93,7 +59,8 @@ export function createTelegramClient(options: TelegramClientOptions) {
     if (params.allowedUpdates) {
       payload.allowed_updates = params.allowedUpdates;
     }
-    return call<TelegramUpdate[]>("getUpdates", payload);
+    const result = await bot.getUpdates(payload);
+    return result as unknown as TelegramUpdate[];
   }
 
   async function sendMessage(
@@ -101,10 +68,7 @@ export function createTelegramClient(options: TelegramClientOptions) {
     text: string,
     options: TelegramSendOptions = {},
   ): Promise<TelegramSendResult> {
-    const payload: Record<string, unknown> = {
-      chat_id: chatId,
-      text,
-    };
+    const payload: TelegramBot.SendMessageOptions & { message_thread_id?: number } = {};
     if (options.replyToMessageId !== undefined) {
       payload.reply_to_message_id = options.replyToMessageId;
     }
@@ -112,7 +76,7 @@ export function createTelegramClient(options: TelegramClientOptions) {
       payload.message_thread_id = options.threadId;
     }
     if (options.entities && options.entities.length > 0) {
-      payload.entities = options.entities;
+      payload.entities = options.entities as TelegramBot.MessageEntity[];
     } else if (options.parseMode) {
       payload.parse_mode = options.parseMode;
     }
@@ -120,10 +84,9 @@ export function createTelegramClient(options: TelegramClientOptions) {
       payload.disable_web_page_preview = options.disableWebPreview;
     }
     if (options.replyMarkup) {
-      payload.reply_markup = options.replyMarkup;
+      payload.reply_markup = options.replyMarkup as TelegramBot.InlineKeyboardMarkup;
     }
-
-    const result = await call<{ message_id: number; chat: { id: number } }>("sendMessage", payload);
+    const result = await bot.sendMessage(chatId, text, payload);
     return { ok: true, messageId: result.message_id, chatId: result.chat.id };
   }
 
@@ -133,13 +96,14 @@ export function createTelegramClient(options: TelegramClientOptions) {
     text: string,
     options: Omit<TelegramSendOptions, "replyToMessageId" | "threadId"> = {},
   ): Promise<TelegramSendResult> {
-    const payload: Record<string, unknown> = {
+    const payload: TelegramBot.EditMessageTextOptions & {
+      entities?: TelegramBot.MessageEntity[];
+    } = {
       chat_id: chatId,
       message_id: messageId,
-      text,
     };
     if (options.entities && options.entities.length > 0) {
-      payload.entities = options.entities;
+      payload.entities = options.entities as TelegramBot.MessageEntity[];
     } else if (options.parseMode) {
       payload.parse_mode = options.parseMode;
     }
@@ -147,13 +111,11 @@ export function createTelegramClient(options: TelegramClientOptions) {
       payload.disable_web_page_preview = options.disableWebPreview;
     }
     if (options.replyMarkup) {
-      payload.reply_markup = options.replyMarkup;
+      payload.reply_markup = options.replyMarkup as TelegramBot.InlineKeyboardMarkup;
     }
-    const result = await call<{ message_id: number; chat: { id: number } }>(
-      "editMessageText",
-      payload,
-    );
-    return { ok: true, messageId: result.message_id, chatId: result.chat.id };
+    const result = await bot.editMessageText(text, payload);
+    const resolved = result as TelegramBot.Message;
+    return { ok: true, messageId: resolved.message_id, chatId: resolved.chat.id };
   }
 
   async function editMessageReplyMarkup(
@@ -161,34 +123,30 @@ export function createTelegramClient(options: TelegramClientOptions) {
     messageId: number,
     replyMarkup?: Record<string, unknown>,
   ): Promise<TelegramSendResult> {
-    const payload: Record<string, unknown> = {
+    const payload: TelegramBot.EditMessageReplyMarkupOptions = {
       chat_id: chatId,
       message_id: messageId,
     };
-    if (replyMarkup) {
-      payload.reply_markup = replyMarkup;
-    }
-    const result = await call<{ message_id: number; chat: { id: number } }>(
-      "editMessageReplyMarkup",
-      payload,
-    );
-    return { ok: true, messageId: result.message_id, chatId: result.chat.id };
+    const markup = (replyMarkup ?? {
+      inline_keyboard: [],
+    }) as unknown as TelegramBot.InlineKeyboardMarkup;
+    const result = await bot.editMessageReplyMarkup(markup, payload);
+    const resolved = result as TelegramBot.Message;
+    return { ok: true, messageId: resolved.message_id, chatId: resolved.chat.id };
   }
 
   async function answerCallbackQuery(
     callbackQueryId: string,
     options: { text?: string; showAlert?: boolean } = {},
   ) {
-    const payload: Record<string, unknown> = {
-      callback_query_id: callbackQueryId,
-    };
+    const payload: Partial<TelegramBot.AnswerCallbackQueryOptions> = {};
     if (options.text) {
       payload.text = options.text;
     }
     if (options.showAlert !== undefined) {
       payload.show_alert = options.showAlert;
     }
-    return call<boolean>("answerCallbackQuery", payload);
+    return bot.answerCallbackQuery(callbackQueryId, payload);
   }
 
   async function setMessageReaction(
@@ -197,15 +155,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
     reaction: TelegramReaction[] | null,
     options: { isBig?: boolean } = {},
   ) {
-    const payload: Record<string, unknown> = {
-      chat_id: chatId,
-      message_id: messageId,
-      reaction: reaction ?? [],
-    };
-    if (options.isBig !== undefined) {
-      payload.is_big = options.isBig;
-    }
-    return call<boolean>("setMessageReaction", payload);
+    return bot.setMessageReaction(chatId, messageId, {
+      reaction: (reaction ?? []) as TelegramBot.ReactionType[],
+      is_big: options.isBig,
+    });
   }
 
   async function sendChatAction(
@@ -213,28 +166,22 @@ export function createTelegramClient(options: TelegramClientOptions) {
     action: TelegramChatAction,
     options: { threadId?: number } = {},
   ) {
-    const payload: Record<string, unknown> = {
-      chat_id: chatId,
-      action,
-    };
-    if (options.threadId !== undefined) {
-      payload.message_thread_id = options.threadId;
-    }
-    return call<boolean>("sendChatAction", payload);
+    const payload: TelegramBot.SendChatActionOptions =
+      options.threadId !== undefined ? { message_thread_id: options.threadId } : {};
+    return bot.sendChatAction(chatId, action as TelegramBot.ChatAction, payload);
   }
 
-  async function setMyCommands(
-    commands: Array<{ command: string; description: string }>,
-  ) {
-    return call<boolean>("setMyCommands", { commands });
+  async function setMyCommands(commands: Array<{ command: string; description: string }>) {
+    return bot.setMyCommands(commands);
   }
 
   async function getFile(fileId: string): Promise<{ filePath: string }> {
-    const result = await call<{ file_path?: string }>("getFile", { file_id: fileId });
-    if (!result.file_path) {
+    const result = await bot.getFile(fileId);
+    const filePath = (result as TelegramBot.File).file_path;
+    if (!filePath) {
       throw new Error("No file_path in getFile response");
     }
-    return { filePath: result.file_path };
+    return { filePath };
   }
 
   async function downloadFile(filePath: string): Promise<ArrayBuffer> {
