@@ -35,6 +35,26 @@ export async function startTelegramTransport(
   let offset: number | undefined = loadOffset(config.statePath);
   let didReady = false;
 
+  // If no saved offset, flush all pending updates so we don't replay old messages
+  if (offset === undefined) {
+    try {
+      const stale = await client.getUpdates({
+        offset: -1,
+        timeoutSeconds: 0,
+        allowedUpdates: ["message", "callback_query"],
+      });
+      if (stale.length > 0) {
+        const last = stale[stale.length - 1];
+        if (last) {
+          offset = last.update_id + 1;
+          persistOffset(config.statePath, offset);
+        }
+      }
+    } catch {
+      // best-effort flush
+    }
+  }
+
   for (;;) {
     try {
       const updates = await client.getUpdates({
