@@ -29,7 +29,14 @@ jobs:
       - run: bun typecheck
       - run: bun run build
 
-      - run: npm publish --access public
+      - name: Publish to npm (skip if already published)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view bob-agent@$VERSION version 2>/dev/null; then
+            echo "v$VERSION already published, skipping"
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
